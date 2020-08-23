@@ -572,9 +572,11 @@
 				return error('update failed');
 			}
 
+			$ret = $this->update_real($docroot, $version);
+
 			parent::setInfo($docroot, [
 				'version' => $this->get_version($hostname, $path) ?? $version,
-				'failed'  => !$this->update_real($docroot, $version)
+				'failed'  => !$ret
 			]);
 
 			$mode = array_get(
@@ -673,7 +675,6 @@
 
 		protected function update_real(string $docroot, string $version = null): bool
 		{
-
 			if ($version) {
 				if (!is_scalar($version) || strcspn($version, '.0123456789')) {
 					return error('invalid version number, %s', $version);
@@ -688,16 +689,12 @@
 			$replace = array(
 				'version' => $version
 			);
+
 			$uri = preg_replace_callback(Regex::LAZY_SUB, static function ($m) use ($replace) {
 				return $replace[$m[1]];
 			}, self::UPDATE_URI);
 
-			$stat = $this->file_stat($docroot);
-			if ($stat['uid'] < User_Module::MIN_UID) {
-				$user = $this->username;
-			} else {
-				$user = $stat['owner'];
-			}
+			$user = $this->getDocrootUser($docroot);
 
 			if (!parent::download($uri, $docroot)) {
 				return error('failed to update Joomla! - download failed');
@@ -724,6 +721,10 @@
 
 		public function get_versions(): array
 		{
+			if (!IS_CLI) {
+				return $this->query('joomla_get_versions');
+			}
+
 			return $this->_getVersions();
 		}
 
@@ -751,6 +752,7 @@
 				return [];
 			}
 			$versions = $matches[1];
+			usort($versions, 'version_compare');
 			$cache->set($key, $versions, 43200);
 
 			return $versions;
