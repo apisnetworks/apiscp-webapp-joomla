@@ -210,7 +210,7 @@
 			return 'joomla';
 		}
 
-		private function _exec($path = null, $cmd, array $args = array())
+		private function _exec(?string $path, $cmd, array $args = array())
 		{
 			// client may override tz, propagate to bin
 			$tz = date_default_timezone_get();
