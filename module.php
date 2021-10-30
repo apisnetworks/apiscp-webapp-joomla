@@ -12,6 +12,8 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Webapps\ComposerWrapper;
+
 	/**
 	 * Joomla! management
 	 *
@@ -22,6 +24,7 @@
 
 		const APP_NAME = 'Joomla!';
 
+
 		// primary domain document root
 		const JOOMLA_CLI = '/usr/share/pear/joomlatools.phar';
 		//const JOOMLA_CLI = '/.socket/php/pear/1.4.6/joomlatools-console-1.4.6/bin/joomla';
@@ -30,7 +33,7 @@
 		// after installation apply the following fortification profile
 		const DEFAULT_FORTIFY_MODE = 'max';
 
-		const JOOMLA_CLI_VERSION = '1.4.11-2';
+		const JOOMLA_CLI_VERSION = '1.6.0-1';
 		const JOOMLA_MODULE_XML = 'http://update.joomla.org/core/extensions/%extension%.xml';
 
 		const DEFAULT_VERSION_LOCK = 'major';
@@ -135,6 +138,25 @@
 
 			$ret = $this->_exec($docroot,
 				'site:download --www=%(docroot)s --release %(version)s --repo=%(repo)s -- ""', $args);
+
+			if (version_compare('4.0.0', $this->get_version($hostname, $path), '<=')) {
+				$build = serial(function () use ($docroot) {
+					ComposerWrapper::instantiateContexted($this->getAuthContext())->exec($docroot, 'install');
+					$nodeVer = '12';
+					if (!$this->node_installed('12')) {
+						$this->node_install('lts');
+						$nodeVer = 'lts';
+					}
+					$this->node_make_default($nodeVer, $docroot);
+					$this->pman_run('cd %(path)s && /bin/bash -ic "npm install"', ['path' => $docroot]);
+					return $this->pman_run('cd %(path)s && /bin/bash -ic "npm ci"', ['path' => $docroot]);
+				});
+
+				if (!array_get((array)$build, 'success')) {
+					warn("Failed to initialize Joomla environment");
+				}
+			}
+
 			$this->_fixMySQLSchema($docroot);
 			if ($ret['success']) {
 				$ret = $this->_exec($docroot,
@@ -152,6 +174,7 @@
 					unlink($this->domain_fs_path() . $file);
 				}
 			}
+
 			if (!$ret['success']) {
 				error('failed to install Joomla - removing temporary files: %s', $ret['stderr']);
 				$this->file_delete($docroot, true);
@@ -606,12 +629,11 @@
 			$fsroot = $this->domain_fs_path();
 			$path = $fsroot . $docroot;
 			$versigs = array(
-				'/libraries/cms/version/version.php', // 3.x, 2.5.x,
-				'/libraries/joomla/version.php',      // 1.7.x allegedly
-				'/includes/version.php'               // what I found in 1.7.5
-
+				'/libraries/cms/version/version.php',        // 3.x, 2.5.x,
+				'/libraries/joomla/version.php',             // 1.7.x allegedly
+				'/includes/version.php,'                     // what I found in 1.7.5
 			);
-			$file = $path . '/language/en-GB/en-GB.xml';
+			$file = $path . '/administrator/manifests/files/joomla.xml';
 			if (file_exists($file)) {
 				$xml = simplexml_load_string(file_get_contents($file));
 				$version = data_get($xml, 'version');
@@ -670,7 +692,7 @@
 				}
 			}
 
-			return $this->file_exists($docroot . '/libraries/joomla');
+			return $this->file_exists($docroot . '/libraries/joomla') || $this->file_exists($docroot . '/cli/joomla.php');
 		}
 
 		protected function update_real(string $docroot, string $version = null): bool
