@@ -787,12 +787,17 @@
 				return false;
 			}
 
-			$updatever = (string)$juext['update']['targetplatform']['@attributes']['version'];
+
+			$updatever = (string)(
+					array_get($juext, 'update.targetplatform.@attributes.version') ??
+						array_get($juext, 'update.0.targetplatform.@attributes.version'));
 			if (version_compare((string)$version, $updatever, '<')) {
 				return true;
 			}
 
-			$uri = $juext['update']['downloads']['downloadurl'];
+			// grab head if multiple updates exist
+			$uri = array_get($juext, 'update.downloads.downloadurl') ??
+				array_get($juext, 'update.0.downloads.downloadurl');
 			$path = $docroot . '/tmp/com_joomlaupdate';
 			if ($this->file_exists($path)) {
 				return false;
@@ -904,6 +909,7 @@
 
 			if (!file_exists(self::JOOMLA_CLI) || sha1_file($file) !== sha1_file(self::JOOMLA_CLI)) {
 				copy($file, self::JOOMLA_CLI);
+				chmod(self::JOOMLA_CLI, 0755);
 				info('copied latest (v%s) JoomlaTools to PEAR', self::JOOMLA_CLI_VERSION);
 			}
 
