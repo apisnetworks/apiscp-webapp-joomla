@@ -13,6 +13,7 @@
 	 */
 
 	use Module\Support\Webapps\ComposerWrapper;
+	use Module\Support\Webapps\PhpWrapper;
 
 	/**
 	 * Joomla! management
@@ -27,13 +28,13 @@
 
 		// primary domain document root
 		const JOOMLA_CLI = '/usr/share/pear/joomlatools.phar';
-		//const JOOMLA_CLI = '/.socket/php/pear/1.4.6/joomlatools-console-1.4.6/bin/joomla';
+
 		const UPDATE_URI = 'https://github.com/joomla/joomla-cms/releases/download/%version%/Joomla_%version%-Stable-Update_Package.zip';
 
 		// after installation apply the following fortification profile
 		const DEFAULT_FORTIFY_MODE = 'max';
 
-		const JOOMLA_CLI_VERSION = '1.6.0-1';
+		const JOOMLA_CLI_VERSION = '2.0.2';
 		const JOOMLA_MODULE_XML = 'http://update.joomla.org/core/extensions/%extension%.xml';
 
 		const DEFAULT_VERSION_LOCK = 'major';
@@ -100,7 +101,7 @@
 				$opts['title'] = '';
 			}
 
-			$this->_exec(null, 'versions --refresh');
+			$this->_exec(null, 'versions --refresh', ['version' => $version]);
 			$fqdn = $this->web_normalize_hostname($hostname);
 
 			if (count(explode('.', $version)) < 3) {
@@ -233,37 +234,36 @@
 			return 'joomla';
 		}
 
+		private function cliFromVersion(string $version): string
+		{
+			return version_compare($version, '3.5.0', '<') ? dirname(self::JOOMLA_CLI) . '/joomlatools-1.6.0-1.phar' : self::JOOMLA_CLI;
+		}
+
+		/**
+		 * Look for manifest presence in v3.5+
+		 *
+		 * @param string $path
+		 * @return string
+		 */
+		private function assertCliTypeFromInstall(string $path): string
+		{
+			return $this->file_exists($path . '/administrator/manifests/files/joomla.xml') ? '999.999.999' : '3.4.99999';
+		}
+
 		private function _exec(?string $path, $cmd, array $args = array())
 		{
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$debug = is_debug() ? ' -vvv' : '';
-			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=128m ' . self::JOOMLA_CLI . $debug;
-			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
-			}
-			$user = $this->username;
-			if ($path) {
-				$cmd = '--www=%(path)s ' . $cmd;
-				$args['path'] = $path;
-				$stat = $this->file_stat($path);
-				$user = !empty($stat['owner']) && $stat['uid'] >= \a23r::get_class_from_module('user')::MIN_UID ?
-					$stat['owner'] : $this->username;
-			}
-			$cmd = $cli . ' --no-interaction ' . $cmd;
-			$ret = $this->pman_run($cmd, $args, null, ['user' => $user]);
+			$wrapper = PhpWrapper::instantiateContexted($this->getAuthContext());
+			$jtcli = $this->cliFromVersion($args['version'] ?? $this->assertCliTypeFromInstall($path));
+			$ret = $wrapper->exec($path, $jtcli . ' --no-interaction ' . $cmd, $args);
+
 			if (!strncmp($ret['stdout'], 'Error:', strlen('Error:'))) {
 				// move stdout to stderr on error for consistency
 				$ret['success'] = false;
 				if (!$ret['stderr']) {
 					$ret['stderr'] = $ret['stdout'];
 				}
-			} else {
-				if (!$ret['success'] && !$ret['stderr']) {
-					$ret['stderr'] = $ret['stdout'];
-				}
+			} else if (!$ret['success'] && !$ret['stderr']) {
+				$ret['stderr'] = $ret['stdout'];
 			}
 
 			return $ret;
@@ -635,6 +635,7 @@
 			);
 			$file = $path . '/administrator/manifests/files/joomla.xml';
 			if (file_exists($file)) {
+				// quickest route on v3.5+
 				$xml = simplexml_load_string(file_get_contents($file));
 				$version = data_get($xml, 'version');
 				if ($version) {
@@ -905,17 +906,21 @@
 		 */
 		public function _housekeeping(): bool
 		{
-			$file = resource_path('storehouse') . '/joomlatools-' . self::JOOMLA_CLI_VERSION . '.phar';
+			$versions = [
+				'joomlatools-1.6.0-1.phar' => 'joomlatools-1.6.0-1.phar',
+				'joomlatools-' . self::JOOMLA_CLI_VERSION . '.phar' => basename(self::JOOMLA_CLI)
+			];
 
-			if (!file_exists(self::JOOMLA_CLI) || sha1_file($file) !== sha1_file(self::JOOMLA_CLI)) {
-				copy($file, self::JOOMLA_CLI);
-				chmod(self::JOOMLA_CLI, 0755);
-				info('copied latest (v%s) JoomlaTools to PEAR', self::JOOMLA_CLI_VERSION);
-			}
+			foreach ($versions as $full => $short) {
+				$src = resource_path('storehouse') . '/' . $full;
+				$dest = dirname(self::JOOMLA_CLI) . '/' . $short;
+				if (is_file($dest) && sha1_file($src) === sha1_file($dest)) {
+					continue;
+				}
 
-			$local = $this->service_template_path('siteinfo') . '/' . self::JOOMLA_CLI;
-			if (!file_exists($local)) {
-				copy(self::JOOMLA_CLI, $local);
+				copy($src, $dest);
+				chmod($dest, 0755);
+				info('Copied %s to PEAR', $full);
 			}
 
 			return true;
