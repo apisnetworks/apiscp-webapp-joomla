@@ -234,9 +234,18 @@
 			return 'joomla';
 		}
 
-		private function cliFromVersion(string $version): string
+		private function cliFromVersion(string $version, string $poolVersion = null): string
 		{
-			return version_compare($version, '3.5.0', '<') ? dirname(self::JOOMLA_CLI) . '/joomlatools-1.6.0-1.phar' : self::JOOMLA_CLI;
+			$selections = [
+				dirname(self::JOOMLA_CLI) . '/joomlatools-1.6.0-1.phar',
+				self::JOOMLA_CLI
+			];
+			$choice = version_compare($version, '3.5.0', '<') ? 0  : 1;
+			if ($poolVersion && version_compare($poolVersion, '8.0.2', '<')) {
+				return $selections[0];
+			}
+
+			return $selections[$choice];
 		}
 
 		/**
@@ -253,7 +262,7 @@
 		private function _exec(?string $path, $cmd, array $args = array())
 		{
 			$wrapper = PhpWrapper::instantiateContexted($this->getAuthContext());
-			$jtcli = $this->cliFromVersion($args['version'] ?? $this->assertCliTypeFromInstall($path));
+			$jtcli = $this->cliFromVersion($args['version'] ?? $this->assertCliTypeFromInstall($path), $this->php_pool_version_from_path((string)$path));
 			$ret = $wrapper->exec($path, $jtcli . ' --no-interaction ' . $cmd, $args);
 
 			if (!strncmp($ret['stdout'], 'Error:', strlen('Error:'))) {
@@ -763,8 +772,10 @@
 			if (false !== ($ver = $cache->get($key))) {
 				return $ver;
 			}
+			// retain backward compatibility with older releases
+			$oldCli = $this->cliFromVersion('1.0');
 			$proc = Util_Process::exec(
-				'php ' . self::JOOMLA_CLI . ' --repo=%(repo)s --refresh versions',
+				'php ' . $oldCli . ' --repo=%(repo)s --refresh versions',
 				array(
 					'repo' => self::JOOMLA_MIRROR
 				)
@@ -819,13 +830,14 @@
 		public function get_plugin_info($plugin, $ver = null)
 		{
 			$replace = array(
-				'plugin' => $plugin,
+				'extension' => $plugin,
 				'ver'    => $ver
 			);
 			// @todo determine plugin versioning
 			$uri = preg_replace_callback(Regex::LAZY_SUB, static function ($m) use ($replace) {
 				return $replace[$m[1]];
-			}, 'http://update.joomla.org/core/extensions/%plugin%.xml?ver=%ver%');
+				'http://update.joomla.org/core/extensions/%extension%.xml';
+			}, self::JOOMLA_MODULE_XML . '?ver=%ver%');
 			$content = silence(static function () use ($uri) {
 				return simplexml_load_string(file_get_contents($uri), 'SimpleXMLElement', LIBXML_NOCDATA);
 			});
