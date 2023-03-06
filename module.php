@@ -140,7 +140,7 @@
 			$ret = $this->_exec($docroot,
 				'site:download --www=%(docroot)s --release %(version)s --repo=%(repo)s -- ""', $args);
 
-			if (version_compare('4.0.0', $this->get_version($hostname, $path), '<=')) {
+			if (version_compare('4.0.0', $version, '<=')) {
 				$build = serial(function () use ($docroot) {
 					ComposerWrapper::instantiateContexted($this->getAuthContext())->exec($docroot, 'install');
 					$nodeVer = '12';
