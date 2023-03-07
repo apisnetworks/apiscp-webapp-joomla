@@ -241,7 +241,7 @@
 				self::JOOMLA_CLI
 			];
 			$choice = version_compare($version, '3.5.0', '<') ? 0  : 1;
-			if ($poolVersion && version_compare($poolVersion, '8.0.2', '<')) {
+			if ($poolVersion && \Opcenter\Versioning::compare($poolVersion, '8.0.2', '<=')) {
 				return $selections[0];
 			}
 
