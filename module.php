@@ -12,8 +12,8 @@
 	 *  +------------------------------------------------------------+
 	 */
 
-	use Module\Support\Webapps\ComposerWrapper;
 	use Module\Support\Webapps\PhpWrapper;
+	use Opcenter\Versioning;
 
 	/**
 	 * Joomla! management
@@ -34,12 +34,17 @@
 		// after installation apply the following fortification profile
 		const DEFAULT_FORTIFY_MODE = 'max';
 
-		const JOOMLA_CLI_VERSION = '2.0.2';
+		const JOOMLA_CLI_VERSION = '2.0.3';
 		const JOOMLA_MODULE_XML = 'http://update.joomla.org/core/extensions/%extension%.xml';
 
 		const DEFAULT_VERSION_LOCK = 'major';
 
-		const JOOMLA_MIRROR = 'http://mirror.apisnetworks.com/joomla';
+		const VERSION_MINIMUMS = [
+			'0'     => '5.6',
+			'4.0.0' => '7.2.4',
+			'5.0.0' => '8.1.0'
+		];
+		const JOOMLA_MIRROR = 'https://github.com/joomla/joomla-cms';
 		protected $aclList = array(
 			'min' => array(
 				'cache',
@@ -105,14 +110,26 @@
 			$fqdn = $this->web_normalize_hostname($hostname);
 
 			if (count(explode('.', $version)) < 3) {
-				$version = \Opcenter\Versioning::asPatch($version);
+				$version = Versioning::asPatch($version);
 			}
+
+			$required = Versioning::satisfy($opts['version'], static::VERSION_MINIMUMS);
+			if (Opcenter\Versioning::compare($local = $this->php_pool_version_from_path($docroot), $required, '<')) {
+				return error("%(app)s requires %(what)s %(version)s. Version %(detected)s detected", [
+					'app' => static::APP_NAME, 'what' => 'PHP', 'version' => $required, 'detected' => $local]);
+			}
+
 			$args = array(
 				'mode'    => 'site:install',
 				'docroot' => $docroot,
 				'site'    => $fqdn,
-				'repo'    => self::JOOMLA_MIRROR . '/archive/' . $version . '.tar.gz'
+				'repo'    => self::JOOMLA_MIRROR
 			);
+
+			if (!$this->file_exists($docroot)) {
+				$this->file_create_directory($docroot, 0755, true);
+			}
+
 			$args['version'] = $version;
 			if (isset($opts['sampledata'])) {
 				$data = $opts['sampledata'];
@@ -138,25 +155,7 @@
 			$args['dbdriver'] = 'mysqli';
 
 			$ret = $this->_exec($docroot,
-				'site:download --www=%(docroot)s --release %(version)s --repo=%(repo)s -- ""', $args);
-
-			if (version_compare('4.0.0', $version, '<=')) {
-				$build = serial(function () use ($docroot) {
-					ComposerWrapper::instantiateContexted($this->getAuthContext())->exec($docroot, 'install');
-					$nodeVer = '12';
-					if (!$this->node_installed('12')) {
-						$this->node_install('lts');
-						$nodeVer = 'lts';
-					}
-					$this->node_make_default($nodeVer, $docroot);
-					$this->pman_run('cd %(path)s && /bin/bash -ic "npm install"', ['path' => $docroot]);
-					return $this->pman_run('cd %(path)s && /bin/bash -ic "npm ci"', ['path' => $docroot]);
-				});
-
-				if (!array_get((array)$build, 'success')) {
-					warn("Failed to initialize Joomla environment");
-				}
-			}
+				'site:download --www=%(docroot)s --use-webroot-dir --release %(version)s -- ""', $args);
 
 			$this->_fixMySQLSchema($docroot);
 			if ($ret['success']) {
@@ -177,6 +176,9 @@
 			}
 
 			if (!$ret['success']) {
+				if (!empty($opts['keep'])) {
+					return error('failed to install Joomla');
+				}
 				error('failed to install Joomla - removing temporary files: %s', $ret['stderr']);
 				$this->file_delete($docroot, true);
 				$db->rollback();
@@ -243,7 +245,7 @@
 				self::JOOMLA_CLI
 			];
 			$choice = version_compare($version, '3.5.0', '<') ? 0  : 1;
-			if ($poolVersion && \Opcenter\Versioning::compare($poolVersion, '8.0.2', '<=')) {
+			if ($poolVersion && Versioning::compare($poolVersion, '7.3.0', '<')) {
 				return $selections[0];
 			}
 
