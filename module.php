@@ -309,6 +309,8 @@
 			$tz = date('T');
 			$fullpath = ($this->php_jailed() ? '' : $this->domain_fs_path()) . $docroot;
 			$opts = array(
+				// Apache handles compression
+				'gzip'      => false,
 				'debug'     => 0,
 				'ftp_host'  => 'localhost',
 				'ftp_user'  => $this->username . '@' . $this->domain,
