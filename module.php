@@ -91,15 +91,12 @@
 				return error('%(what)s must be enabled to install %(app)s',
 					['what' => 'MySQL', 'app' => static::APP_NAME]);
 			}
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error('failed to install Joomla');
-			}
 
 			if (!$this->parseInstallOptions($opts, $hostname, $path)) {
 				return false;
 			}
 
+			$docroot = $this->getAppRoot($hostname, $path);
 			$version = $opts['version'];
 
 			if (!isset($opts['title'])) {
