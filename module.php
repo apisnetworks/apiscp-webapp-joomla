@@ -211,10 +211,6 @@
 			if (!$this->file_exists($docroot . '/logs')) {
 				$this->file_create_directory($docroot . '/logs');
 			}
-			$this->initializeMeta($docroot, $opts);
-
-			$fortifymode = self::DEFAULT_FORTIFY_MODE;
-			$this->fortify($hostname, $path, $fortifymode);
 			info('fortification mode set to %s', strtoupper($fortifymode));
 
 			$this->notifyInstalled($hostname, $path, $opts);
